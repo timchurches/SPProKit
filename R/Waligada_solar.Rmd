@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(tidyverse)
+
+csv_path <- "~/Documents/Chatham_Valley/Solar/SPLINK/Waligada/"
+csv_files <- c("PerformanceData_2021-12-16_10-01-47/Waligada_DetailedData_2021-12-16_10-01-47.CSV",
+               "PerformanceData_2021-12-17_15-22-39/Waligada_DetailedData_2021-12-17_15-22-39.CSV",
+               "PerformanceData_2021-12-18_08-41-26/Waligada_DetailedData_2021-12-18_08-41-26.CSV",
+               "PerformanceData_2021-12-19_14-53-35/Waligada_DetailedData_2021-12-19_14-53-35.CSV",
+               "PerformanceData_2021-12-20_09-07-49/Waligada_DetailedData_2021-12-20_09-07-49.CSV")
+
+if (exists("waligada")) rm(waligada)
+if (exists("csv_data")) rm(csv_data)
+
+for (f in csv_files) {               
+    csv_data <- readr::read_csv(paste0(csv_path,f))
+    if (exists("waligada")) {
+        waligada <- waligada %>%
+            bind_rows(csv_data)
+    } else {
+        waligada <- csv_data
+    }
+}    
+
+Parameter_order <- c(
+                "SoC %",			
+                "Avg AC load (kW)",			
+                "Log avg AC load (log kW)",
+                "Max AC load (kW)",			
+                "Log max AC load (log kW)",			
+                "Avg DC (V)",			
+                "Avg inverter AC power (kW)",			
+                "Avg inverter DC current (A)",			
+                "Cum AC load (kWh)",			
+                "Cum AC coupled energy in (kWh)",			
+                "Total AC coupled power in (kW)",
+                "Cum bat in (kWh)",			
+                "Cum bat out (kWh)",			
+                "Cum DC input (kWh)",			
+                "Cum DC output (kWh)")			
+
+waligada <- waligada %>%
+    janitor::clean_names() %>%
+    mutate(date_time = clock::date_time_parse(date_time_stamp_dd_mm_yyyy_hh_mm_ss, "Australia/Sydney", format="%d/%m/%Y - %H:%M:%S")) %>%
+    mutate(log_load_ac_power_average_k_w = log10(load_ac_power_average_k_w),
+           log_load_ac_power_max_k_w = log10(load_ac_power_max_k_w)) %>%
+    select(date_time, 
+           state_of_charge_sample_percent,
+           dc_voltage_average_v_dc,
+           # dc_voltage_max_v_dc,
+           # dc_voltage_min_v_dc,
+           dc_input_accumulated_sample_k_wh,
+           dc_output_accumulated_sample_k_wh,
+           battery_in_accumulated_sample_k_wh,
+           battery_out_accumulated_sample_k_wh,
+           load_ac_power_average_k_w,
+           log_load_ac_power_average_k_w,
+           load_ac_power_max_k_w,
+           log_load_ac_power_max_k_w,
+           ac_load_k_wh_accumulated_sample_k_wh,
+           total_ac_coupled_power_average_k_w,
+           total_ac_coupled_energy_sample_k_wh,
+           inverter_ac_power_average_k_w,
+           inverter_dc_current_average_a
+           ) %>%
+    rename("SoC %"=state_of_charge_sample_percent,
+           "Avg DC (V)" = dc_voltage_average_v_dc,
+           # "Max DC V" = dc_voltage_max_v_dc,
+           # "Min DC V" = dc_voltage_min_v_dc,
+           "Cum DC input (kWh)" = dc_input_accumulated_sample_k_wh,
+           "Cum DC output (kWh)" = dc_output_accumulated_sample_k_wh,
+           "Cum bat in (kWh)" = battery_in_accumulated_sample_k_wh,
+           "Cum bat out (kWh)" = battery_out_accumulated_sample_k_wh,
+           "Avg AC load (kW)" = load_ac_power_average_k_w,
+           "Log avg AC load (log kW)" = log_load_ac_power_average_k_w,
+           "Max AC load (kW)" = load_ac_power_max_k_w,
+           "Log max AC load (log kW)" = log_load_ac_power_max_k_w,
+           "Cum AC load (kWh)" = ac_load_k_wh_accumulated_sample_k_wh,
+           "Total AC coupled power in (kW)" = total_ac_coupled_power_average_k_w,
+           "Cum AC coupled energy in (kWh)" = total_ac_coupled_energy_sample_k_wh,
+           "Avg inverter AC power (kW)"=inverter_ac_power_average_k_w,
+           "Avg inverter DC current (A)"=inverter_dc_current_average_a
+           ) %>%
+    pivot_longer(!date_time,
+                 names_to = "Parameter", 
+                 values_to = "Value") %>%
+    mutate(Parameter = factor(Parameter,levels=Parameter_order))
+    
+
+#prefmt <- waligada %>% count(Parameter)
+
+#postfmt <- waligada %>%
+#    count(Parameter)
+
+#prefmt %>% full_join(postfmt,by = "Parameter")
+
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+```{r, fig.asp= 0.5}
+tz <- "Australia/Sydney"
+
+waligada %>%
+    # filter(date_time >= clock::date_time_build(year=2021, month=12, day = 17, hour = 12, minute = 0, zone=tz),
+    #        date_time < clock::date_time_build(year=2021, month=12, day = 17, hour = 14, minute = 0, zone=tz)) %>%
+    ggplot(aes(x=date_time, y=Value)) +
+               geom_line() +
+                labs(x="Date/time") +
+                facet_grid(rows = vars(Parameter), 
+                           scales = "free_y",
+                           labeller = label_wrap_gen(width=6))
+```
+
+```{r, fig.asp= 0.65}
+tz <- "Australia/Sydney"
+x_axis_origin <- clock::date_time_build(year=2021, month=12, day = 12, hour = 4, minute = 0, zone=tz)
+
+waligada %>%
+    #filter(date_time >= clock::date_time_build(year=2021, month=12, day = 17, hour = 6, minute = 0, zone=tz),
+    #    date_time < clock::date_time_build(year=2021, month=12, day = 17, hour = 18, minute = 0, zone=tz)) %>%
+    ggplot(aes(x=date_time, y=Value)) +
+               geom_line() +
+                scale_x_datetime(name="Date/time",
+                                 date_labels = "%a, %d %b %Y %H:%M",
+                                 date_breaks = "6 hours",
+                                 limits=c(x_axis_origin, NA)) +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                facet_grid(rows = vars(Parameter), 
+                           scales = "free_y",
+                           labeller = label_wrap_gen(width=6))
+```
+
+
