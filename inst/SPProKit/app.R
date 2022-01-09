@@ -2,10 +2,10 @@
 library(shiny)
 library(flexdashboard)
 library(bs4Dash)
-# library(shinydashboard)
-# library(shinydashboardPlus)
 library(shinyWidgets)
+library(dygraphs)
 library(tidyverse)
+library(ggstream)
 library(glue)
 library(here)
 library(duckdb)
@@ -32,15 +32,17 @@ getdata_labels <- c("Load (W)", "Log Load (logW)","Battery usage (W)",
 last_update <- clock::date_now(zone=tz)
 
 ui <- dashboardPage(
+
   header = dashboardHeader(title="SPProKit"),
-## Sidebar content
+
   sidebar = dashboardSidebar(
     fixed = TRUE,
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
-      menuItem("Recent", tabName = "recent", icon = icon("stats", lib="glyphicon")),
       menuItem("Historical", tabName = "historical", icon = icon("stats", lib="glyphicon")),
-      menuItem("Messages", tabName = "messages", icon = icon("bullhorn", lib="glyphicon"))
+      menuItem("Analysis", tabName = "analysis", icon = icon("solar-panel")),
+      menuItem("Messages", tabName = "messages", icon = icon("bullhorn", lib="glyphicon")),
+      menuItem("Log", tabName = "log", icon = icon("book"))
     ),
       hr(),
       h4("Current state", align = "center"),
@@ -55,8 +57,7 @@ ui <- dashboardPage(
       )
   ),
 
-## Right sidebar
-     controlbar = dashboardControlbar(
+  controlbar = dashboardControlbar(
             title = "Skin selector and stop button",
             skinSelector(),
             actionBttn("stop_button",
@@ -65,7 +66,7 @@ ui <- dashboardPage(
                        icon = icon("stop"))
 
      ),
-## Body content
+
  body = dashboardBody(
     tabItems(
       # First tab content
@@ -80,7 +81,7 @@ ui <- dashboardPage(
                             sliderInput("shortTermRange",
                                      width="90%",
                                      label = "Time range (hours ago)",
-                                     min = -24, max = 1,
+                                     min = -24, max = 0,
                                      value = c(-24, 0)),
 
                             checkboxInput("logarithmic", "Show log of load and solar production"),
@@ -90,7 +91,7 @@ ui <- dashboardPage(
         ),
         fluidRow(
           box(plotOutput("RecentSummaryPlot"),
-              title = "Historical data",
+              title = "Historical 10 minute averages",
               width=12,
               sidebar = boxSidebar(
                                     id = "historical_box_sidebar",
@@ -98,7 +99,7 @@ ui <- dashboardPage(
                                     sliderInput("recentSummaryRange",
                                              width="90%",
                                              label = "Date range (days ago)",
-                                             min = -31, max = 1,
+                                             min = -31, max = 0,
                                              value = c(-28, 0)),
                                     checkboxInput("logarithmic_summary",
                                                   "Show log of load and daily total load")
@@ -107,38 +108,65 @@ ui <- dashboardPage(
         )
       ),
 
-      tabItem(tabName = "recent",
-        h2("Widgets tab content")
+      tabItem(tabName = "analysis",
+              fluidRow(
+                  box(plotOutput("FullBatteryPlot"),
+                        title = "Time when battery is full",
+                        width=12,
+                                    sidebar = boxSidebar(
+                            id = "full_battery_plot_sidebar",
+                            width = 25,
+                            sliderInput("fullBatteryPlotRange",
+                                     width="90%",
+                                     label = "Time range (days ago)",
+                                     min = -365, max = 0,
+                                     value = c(-90, 0))
+                        )
+
+                      )
+              )
       ),
 
-      # Second tab content
-      tabItem(tabName = "history",
-        h2("Widgets tab content")
+      tabItem(tabName = "historical",
+        h2("Yet to be implemented")
       ),
 
-      # Third tab content
       tabItem(tabName = "messages",
         h2("Messages and announcements")
+      ),
+
+      tabItem(tabName = "log",
+        h2("Logs")
       )
     )
  )
 )
 
 server <- function(input, output, session) {
-    observe({
 
-          output$soc_gauge = renderGauge({
-            invalidateLater(15000, session)
+        gaugeData <- reactive({
+            on.exit(invalidateLater(15000, session))
             con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
             hfdata <- tbl(con_duck, 'hfdata')
-            batt_soc <- hfdata %>%
+            gauge_data <- hfdata %>%
                 filter(timestamp == max(timestamp)) %>%
-                select(battery_soc) %>%
+                mutate(battery_charge_rate_w = if_else(battery_w <= 0,
+                                                     -battery_w,
+                                                     0),
+                       battery_discharge_rate_w = if_else(battery_w >= 0,
+                                                     battery_w,
+                                                     0)) %>%
+                select(battery_soc, load_w, solarinverter_w,
+                       battery_charge_rate_w, battery_discharge_rate_w) %>%
                 collect() %>%
-                pull()
+                slice(1)
             rm(hfdata)
             duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            gauge(round(batt_soc),
+            gauge_data
+                            })
+
+          output$soc_gauge = renderGauge({
+            gauge(round(gaugeData() %>% pull(battery_soc)),
                   min = 0,
                   max = 100,
                   symbol = "%",
@@ -149,17 +177,7 @@ server <- function(input, output, session) {
               })
 
           output$load_gauge = renderGauge({
-            invalidateLater(15000, session)
-            con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
-            hfdata <- tbl(con_duck, 'hfdata')
-            current_load <- hfdata %>%
-                filter(timestamp == max(timestamp)) %>%
-                select(load_w) %>%
-                collect() %>%
-                pull()
-            rm(hfdata)
-            duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            gauge(round(current_load),
+            gauge(round(gaugeData() %>% pull(load_w)),
                   min = 0,
                   max = 10000,
                   symbol = "W",
@@ -170,17 +188,7 @@ server <- function(input, output, session) {
               })
 
           output$solar_gauge = renderGauge({
-            invalidateLater(15000, session)
-            con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
-            hfdata <- tbl(con_duck, 'hfdata')
-            current_solar <- hfdata %>%
-                filter(timestamp == max(timestamp)) %>%
-                select(solarinverter_w) %>%
-                collect() %>%
-                pull()
-            rm(hfdata)
-            duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            gauge(round(current_solar),
+            gauge(round(gaugeData() %>% pull(solarinverter_w)),
                   min = 0,
                   max = 10000,
                   symbol = "W",
@@ -191,20 +199,7 @@ server <- function(input, output, session) {
               })
 
           output$battery_charge_gauge = renderGauge({
-            invalidateLater(15000, session)
-            con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
-            hfdata <- tbl(con_duck, 'hfdata')
-            battery_charge_rate_w <- hfdata %>%
-                filter(timestamp == max(timestamp)) %>%
-                mutate(battery_charge_rate_w = if_else(battery_w <= 0,
-                                                     -battery_w,
-                                                     0)) %>%
-                select(battery_charge_rate_w) %>%
-                collect() %>%
-                pull()
-            rm(hfdata)
-            duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            gauge(round(battery_charge_rate_w),
+            gauge(round(gaugeData() %>% pull(battery_charge_rate_w)),
                   min = 0,
                   max = 10000,
                   symbol = "W",
@@ -213,20 +208,7 @@ server <- function(input, output, session) {
               })
 
           output$battery_discharge_gauge = renderGauge({
-            invalidateLater(15000, session)
-            con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
-            hfdata <- tbl(con_duck, 'hfdata')
-            battery_discharge_rate_w <- hfdata %>%
-                filter(timestamp == max(timestamp)) %>%
-                mutate(battery_discharge_rate_w = if_else(battery_w >= 0,
-                                                     battery_w,
-                                                     0)) %>%
-                select(battery_discharge_rate_w) %>%
-                collect() %>%
-                pull()
-            rm(hfdata)
-            duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            gauge(round(battery_discharge_rate_w),
+            gauge(round(gaugeData() %>% pull(battery_discharge_rate_w)),
                   min = 0,
                   max = 10000,
                   symbol = "W",
@@ -330,15 +312,50 @@ server <- function(input, output, session) {
                            labeller = labeller(Parameter = label_wrap_gen(10))) +
                 theme(legend.position = "none",
                       text = element_text(size = 15)) +
-                labs(x="10 minute epoch data/time")
+                labs(x="10 minute epoch date/time")
 
         })
 
-    })
+        output$FullBatteryPlot <- renderPlot({
+            right_now <- clock::date_now(tz)
+            earliest <- clock::add_days(right_now, input$fullBatteryPlotRange[1])
+            latest <- clock::add_days(right_now, input$fullBatteryPlotRange[2])
+            con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
+            hfdata <- tbl(con_duck, 'hfdata')
+            hf <- hfdata %>%
+                select(timestamp, battery_soc) %>%
+                collect()
+            rm(hfdata)
+            duckdb::dbDisconnect(con_duck, shutdown=TRUE)
+            full_battery_hf <- hf %>%
+                mutate(timestamp = clock::date_set_zone(timestamp, zone = tz)) %>%
+                mutate(datestamp = clock::as_date(timestamp)) %>%
+                group_by(datestamp) %>%
+                filter(battery_soc == 100) %>%
+                summarise(battery_full_time = min(timestamp)) %>%
+                mutate(battery_full_time_hours = get_hour(battery_full_time) +
+                                                 get_minute(battery_full_time)/60)
+
+#                        pivot_longer(!timestamp,
+#                                names_to = "Parameter",
+#                                values_to = "Value") %>%
+#                mutate(Parameter = factor(Parameter,
+#                                             levels = hfdata_levels,
+#                                             labels = hfdata_labels)) %>%
+#                filter(timestamp <= latest & timestamp >= earliest)
+
+            full_battery_hf %>%
+                ggplot(aes(x=datestamp, y=battery_full_time_hours)) +
+                geom_point() +
+                theme(legend.position = "none",
+                      text = element_text(size = 15)) +
+                labs(x="Date/Time", y="Time of day when battery is full")
+        })
 
     observeEvent(input$stop_button, {
         stopApp("App stopped!")
     })
+
 }
 
 shinyApp(ui, server)
