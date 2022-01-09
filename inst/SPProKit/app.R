@@ -5,7 +5,8 @@ library(bs4Dash)
 library(shinyWidgets)
 library(dygraphs)
 library(tidyverse)
-library(ggstream)
+library(tidygraph)
+library(ggraph)
 library(glue)
 library(here)
 library(duckdb)
@@ -39,6 +40,7 @@ ui <- dashboardPage(
     fixed = TRUE,
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
+      menuItem("Directed graph", tabName = "graph", icon = icon("project-diagram")),
       menuItem("Historical", tabName = "historical", icon = icon("stats", lib="glyphicon")),
       menuItem("Analysis", tabName = "analysis", icon = icon("solar-panel")),
       menuItem("Messages", tabName = "messages", icon = icon("bullhorn", lib="glyphicon")),
@@ -106,6 +108,25 @@ ui <- dashboardPage(
                                     )
         )
         )
+      ),
+
+      tabItem(tabName = "graph",
+              fluidRow(
+                  box(plotOutput("DirectedGraphPlot"),
+                        title = "Power flows",
+                        width=12,
+                        sidebar = boxSidebar(
+                            id = "directed_graph_plot_sidebar",
+                            width = 25,
+                            sliderInput("directedGraphPlotRange",
+                                     width="90%",
+                                     label = "Time range (days ago)",
+                                     min = -365, max = 0,
+                                     value = c(-90, 0))
+                        )
+
+                      )
+              )
       ),
 
       tabItem(tabName = "analysis",
@@ -315,6 +336,27 @@ server <- function(input, output, session) {
                 labs(x="10 minute epoch date/time")
 
         })
+
+        output$DirectedGraphPlot <- renderPlot({
+
+waligada <- tibble::tribble(~from, ~to, ~weight,
+                            "Gen","Selectronic", 200,
+                            "Solar", "Selectronic", 500,
+                            "Selectronic", "Battery", 350,
+                            "Battery", "Selectronic", 250,
+                            "Selectronic", "Load", 700)
+waligada %>%
+    as_tbl_graph() %>%
+    ggraph(layout = 'stress') +
+  geom_edge_fan(aes(label = weight,
+                     start_cap = label_rect(node1.name),
+                     end_cap = label_rect(node2.name)),
+                strength = 2,
+                angle_calc = 'along',
+                label_dodge = unit(2.5, 'mm'),
+                 arrow = arrow(length = unit(4, 'mm'))) +
+  geom_node_text(aes(label = name))
+})
 
         output$FullBatteryPlot <- renderPlot({
             right_now <- clock::date_now(tz)
