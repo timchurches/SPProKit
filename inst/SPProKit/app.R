@@ -190,7 +190,7 @@ server <- function(input, output, session) {
                                                      battery_w,
                                                      0)) %>%
                 select(battery_soc, load_w, solarinverter_w,
-                       battery_charge_rate_w, battery_discharge_rate_w) %>%
+                       battery_charge_rate_w, battery_discharge_rate_w, grid_w) %>%
                 collect() %>%
                 slice(1)
             rm(hfdata)
@@ -280,6 +280,7 @@ server <- function(input, output, session) {
                                              levels = hfdata_levels,
                                              labels = hfdata_labels)) %>%
                 filter(timestamp <= latest & timestamp >= earliest)
+
             last_update <<- display_hf %>%
                 filter(timestamp == max(timestamp)) %>%
                 select(timestamp) %>%
@@ -397,6 +398,8 @@ server <- function(input, output, session) {
                         pull(battery_charge_rate_w)
             battery_discharge_rate_w <- gaugeData() %>%
                         pull(battery_discharge_rate_w)
+            gen_w <- gaugeData() %>%
+                        pull(grid_w)
 
             battery_label <- glue("Battery (SoC ", bat_soc, "%)")
 
@@ -410,7 +413,7 @@ server <- function(input, output, session) {
                        shadow = TRUE)
 
             edges_tbl <- tibble::tribble(~from, ~to, ~width, ~label,
-                    1, 2, 0, glue(0, "W"),
+                    1, 2, log10(gen_w), glue(round(gen_w), "W"),
                     3, 2, log10(solar_w), glue(round(solar_w), "W"),
                     2, 4, log10(battery_charge_rate_w), glue(round(battery_charge_rate_w), "W"),
                     4, 2, log10(battery_discharge_rate_w), glue(round(battery_discharge_rate_w), "W"),
