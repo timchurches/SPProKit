@@ -7,6 +7,7 @@ library(dygraphs)
 library(tidyverse)
 library(tidygraph)
 library(ggraph)
+library(visNetwork)
 library(glue)
 library(here)
 library(duckdb)
@@ -94,7 +95,7 @@ ui <- dashboardPage(
         fluidRow(
           box(plotOutput("RecentSummaryPlot"),
               title = "Historical 10 minute averages",
-              width=12,
+              width=9,
               sidebar = boxSidebar(
                                     id = "historical_box_sidebar",
                                     width = 25,
@@ -106,27 +107,38 @@ ui <- dashboardPage(
                                     checkboxInput("logarithmic_summary",
                                                   "Show log of load and daily total load")
                                     )
-        )
+            ),
+          box(
+              visNetworkOutput("visNetworkPlot"),
+              title = "Power flows",
+              width=3)
+
         )
       ),
 
       tabItem(tabName = "graph",
-              fluidRow(
-                  box(plotOutput("DirectedGraphPlot"),
-                        title = "Power flows",
-                        width=12,
-                        sidebar = boxSidebar(
-                            id = "directed_graph_plot_sidebar",
-                            width = 25,
-                            sliderInput("directedGraphPlotRange",
-                                     width="90%",
-                                     label = "Time range (days ago)",
-                                     min = -365, max = 0,
-                                     value = c(-90, 0))
-                        )
-
-                      )
-              )
+              # fluidRow(
+              #     box(plotOutput("DirectedGraphPlot"),
+              #           title = "Power flows",
+              #           width=12,
+              #           sidebar = boxSidebar(
+              #               id = "directed_graph_plot_sidebar",
+              #               width = 25,
+              #               sliderInput("directedGraphPlotRange",
+              #                        width="90%",
+              #                        label = "Time range (days ago)",
+              #                        min = -365, max = 0,
+              #                        value = c(-90, 0))
+              #           )
+              #
+              #         )
+              # ),
+              # fluidRow(
+              #     box(
+              #         visNetworkOutput("visNetworkPlot", height="800px"),
+              #         title = "Power flows",
+              #         width=12)
+              # )
       ),
 
       tabItem(tabName = "analysis",
@@ -337,25 +349,78 @@ server <- function(input, output, session) {
 
         })
 
-        output$DirectedGraphPlot <- renderPlot({
+#         output$DirectedGraphPlot <- renderPlot({
+#
+#                 bat_soc <- gaugeData() %>%
+#                             pull(battery_soc)
+#                 load_w <- gaugeData() %>%
+#                             pull(load_w)
+#                 solar_w <- gaugeData() %>%
+#                             pull(solarinverter_w)
+#                 battery_charge_rate_w <- gaugeData() %>%
+#                             pull(battery_charge_rate_w)
+#                 battery_discharge_rate_w <- gaugeData() %>%
+#                             pull(battery_discharge_rate_w)
+#
+#                 battery_label <- glue("Battery (SoC ", bat_soc, "%)")
+#
+#                 graph_tbl <- tibble::tribble(~from, ~to, ~edge_weight, ~edge_label,
+#                         "Generator","Selectronic", 0, glue(0, "W"),
+#                         "Solar", "Selectronic", solar_w, glue(round(solar_w), "W"),
+#                         "Selectronic", battery_label, battery_charge_rate_w, glue(round(battery_charge_rate_w), "W"),
+#                         battery_label, "Selectronic", battery_discharge_rate_w, glue(round(battery_discharge_rate_w), "W"),
+#                         "Selectronic", "Load", load_w, glue(round(load_w), "W"))
+#
+#                 graph_tbl %>%
+#                     as_tbl_graph() %>%
+#                     ggraph(layout = 'stress') +
+#                   geom_edge_fan(aes(label = edge_label,
+#                                      start_cap = label_rect(node1.name),
+#                                      end_cap = label_rect(node2.name)),
+#                                 label_size = 6,
+#                                 strength = 2,
+#                                 angle_calc = 'along',
+#                                 label_dodge = unit(2.5, 'mm'),
+#                                  arrow = arrow(length = unit(4, 'mm'))) +
+#                   geom_node_text(aes(label = name), size=6)
+# })
 
-waligada <- tibble::tribble(~from, ~to, ~weight,
-                            "Gen","Selectronic", 200,
-                            "Solar", "Selectronic", 500,
-                            "Selectronic", "Battery", 350,
-                            "Battery", "Selectronic", 250,
-                            "Selectronic", "Load", 700)
-waligada %>%
-    as_tbl_graph() %>%
-    ggraph(layout = 'stress') +
-  geom_edge_fan(aes(label = weight,
-                     start_cap = label_rect(node1.name),
-                     end_cap = label_rect(node2.name)),
-                strength = 2,
-                angle_calc = 'along',
-                label_dodge = unit(2.5, 'mm'),
-                 arrow = arrow(length = unit(4, 'mm'))) +
-  geom_node_text(aes(label = name))
+        output$visNetworkPlot <- renderVisNetwork({
+
+            bat_soc <- gaugeData() %>%
+                        pull(battery_soc)
+            load_w <- gaugeData() %>%
+                        pull(load_w)
+            solar_w <- gaugeData() %>%
+                        pull(solarinverter_w)
+            battery_charge_rate_w <- gaugeData() %>%
+                        pull(battery_charge_rate_w)
+            battery_discharge_rate_w <- gaugeData() %>%
+                        pull(battery_discharge_rate_w)
+
+            battery_label <- glue("Battery (SoC ", bat_soc, "%)")
+
+            nodes_tbl <- tibble::tribble(~id, ~label,
+                                         1, "Generator",
+                                         2, "Selectronic",
+                                         3, "Solar",
+                                         4, battery_label,
+                                         5, "Load") %>%
+                mutate(shape = "box",
+                       shadow = TRUE)
+
+            edges_tbl <- tibble::tribble(~from, ~to, ~width, ~label,
+                    1, 2, 0, glue(0, "W"),
+                    3, 2, log10(solar_w), glue(round(solar_w), "W"),
+                    2, 4, log10(battery_charge_rate_w), glue(round(battery_charge_rate_w), "W"),
+                    4, 2, log10(battery_discharge_rate_w), glue(round(battery_discharge_rate_w), "W"),
+                    2, 5, log10(load_w), glue(round(load_w), "W")) %>%
+                mutate(arrows = "to",
+                       shadow = TRUE)
+
+            visNetwork(nodes_tbl, edges_tbl) %>% #, width = "100%", height="800px")
+            visInteraction(dragNodes = FALSE, dragView = FALSE, zoomView = FALSE) %>%
+            visLayout(randomSeed = 123)
 })
 
         output$FullBatteryPlot <- renderPlot({
@@ -384,7 +449,6 @@ waligada %>%
 #                mutate(Parameter = factor(Parameter,
 #                                             levels = hfdata_levels,
 #                                             labels = hfdata_labels)) %>%
-#                filter(timestamp <= latest & timestamp >= earliest)
 
             full_battery_hf %>%
                 ggplot(aes(x=datestamp, y=battery_full_time_hours)) +
