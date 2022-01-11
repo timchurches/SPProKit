@@ -6,7 +6,7 @@ library(shinyWidgets)
 library(dygraphs)
 library(tidyverse)
 library(tidygraph)
-library(ggraph)
+library(ggridges)
 library(visNetwork)
 library(glue)
 library(here)
@@ -40,11 +40,10 @@ ui <- dashboardPage(
   sidebar = dashboardSidebar(
     fixed = TRUE,
     sidebarMenu(
-      menuItem("Overview", tabName = "overview", icon = icon("dashboard")),
-      menuItem("Directed graph", tabName = "graph", icon = icon("project-diagram")),
-      menuItem("Historical", tabName = "historical", icon = icon("stats", lib="glyphicon")),
-      menuItem("Analysis", tabName = "analysis", icon = icon("solar-panel")),
-      menuItem("Messages", tabName = "messages", icon = icon("bullhorn", lib="glyphicon")),
+      menuItem("Overview", tabName = "overview", icon = icon("dashboard", lib="glyphicon")),
+      menuItem("Historical", tabName = "historical", icon = icon("chart-line")),
+      menuItem("Analysis", tabName = "analysis", icon = icon("calculator")),
+      menuItem("Messages", tabName = "messages", icon = icon("bullhorn")),
       menuItem("Log", tabName = "log", icon = icon("book"))
     ),
       hr(),
@@ -116,22 +115,20 @@ ui <- dashboardPage(
         )
       ),
 
-      tabItem(tabName = "graph",
-      ),
-
       tabItem(tabName = "analysis",
               fluidRow(
-                  box(plotOutput("FullBatteryPlot"),
-                        title = "Time when battery is full",
+                  box(plotOutput("RidgePlot"),
+                        title = "Time-of-day plot",
                         width=12,
-                                    sidebar = boxSidebar(
-                            id = "full_battery_plot_sidebar",
+                        height=1000,
+                        sidebar = boxSidebar(
+                            id = "ridge_plot_sidebar",
                             width = 25,
-                            sliderInput("fullBatteryPlotRange",
+                            sliderInput("ridgePlotRange",
                                      width="90%",
                                      label = "Time range (days ago)",
-                                     min = -365, max = 0,
-                                     value = c(-90, 0))
+                                     min = -30, max = 0,
+                                     value = c(-20, 0))
                         )
 
                       )
@@ -386,10 +383,10 @@ server <- function(input, output, session) {
 
 })
 
-        output$FullBatteryPlot <- renderPlot({
+        output$RidgePlot <- renderPlot(width = 1000, height = 800, {
             right_now <- clock::date_now(tz)
-            earliest <- clock::add_days(right_now, input$fullBatteryPlotRange[1])
-            latest <- clock::add_days(right_now, input$fullBatteryPlotRange[2])
+            earliest <- clock::add_days(right_now, input$ridgePlotRange[1])
+            latest <- clock::add_days(right_now, input$ridgePlotRange[2])
             con_duck <- dbConnect(duckdb::duckdb(), duckdb_path, read_only=TRUE)
             hfdata <- tbl(con_duck, 'hfdata')
             hf <- hfdata %>%
@@ -397,21 +394,22 @@ server <- function(input, output, session) {
                 collect()
             rm(hfdata)
             duckdb::dbDisconnect(con_duck, shutdown=TRUE)
-            full_battery_hf <- hf %>%
+            ridge_data <- hf %>%
                 mutate(timestamp = clock::date_set_zone(timestamp, zone = tz)) %>%
+                filter(timestamp >= earliest, timestamp <= latest) %>%
                 mutate(datestamp = clock::as_date(timestamp)) %>%
-                group_by(datestamp) %>%
-                filter(battery_soc == 100) %>%
-                summarise(battery_full_time = min(timestamp)) %>%
-                mutate(battery_full_time_hours = get_hour(battery_full_time) +
-                                                 get_minute(battery_full_time)/60)
+                mutate(time_of_day = get_hour(timestamp) + get_minute(timestamp)/60) %>%
+                # group_by(datestamp) %>%
+                mutate(scaled_battery_soc = scales::rescale(battery_soc)) # %>%
+                # ungroup()
 
-            full_battery_hf %>%
-                ggplot(aes(x=datestamp, y=battery_full_time_hours)) +
-                geom_point() +
-                theme(legend.position = "none",
-                      text = element_text(size = 15)) +
-                labs(x="Date/Time", y="Time of day when battery is full")
+            ridge_data %>%
+                ggplot(aes(x=time_of_day, y = datestamp, group = datestamp,
+                           height = scaled_battery_soc, fill=identity(scaled_battery_soc))) +
+                geom_density_ridges_gradient(stat = "identity", scale = 0.9) +
+                scale_fill_viridis_c(name = "Battery SoC", option = "C") +
+                theme(text = element_text(size = 15)) +
+                labs(y="Date", x="Time of day")
         })
 
     observeEvent(input$stop_button, {
