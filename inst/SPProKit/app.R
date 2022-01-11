@@ -21,14 +21,14 @@ duckdb_path <- "~/SProKit-data/Selectronics_data.duckdb"
 
 hfdata_levels <- c("load_w", "log_load_w", "battery_w",
                    "solarinverter_w", "log_solarinverter_w", "battery_soc", "grid_w")
-hfdata_labels <- c("Load (W)", "Log Load (logW)","Battery usage (W)",
-                   "Solar inverter (W)", "Log Solar inverter (logW)", "State of charge (%)",
+hfdata_labels <- c("Load (W)", "Log Load (logW)","Battery charge/ discharge rate (W)",
+                   "Solar inverter output (W)", "Log Solar inverter output (logW)", "Battery State of charge (%)",
                    "Gen/grid input (W)")
 
 getdata_levels <- c("load_w", "log_load_w", "battery_w",
                    "load_wh_today", "log_load_wh_today", "battery_soc", "grid_w")
-getdata_labels <- c("Load (W)", "Log Load (logW)","Battery usage (W)",
-                   "Daily total load (kWh)", "Log daily total load (logkWh)", "State of charge (%)",
+getdata_labels <- c("Load (W)", "Log Load (logW)","Battery charge/ discharge rate (W)",
+                   "Daily total load (kWh)", "Log daily total load (logkWh)", "Battery State of charge (%)",
                    "Gen/grid input (W)")
 
 last_update <- clock::date_now(zone=tz)
@@ -88,7 +88,7 @@ ui <- dashboardPage(
                                      value = c(-24, 0)),
 
                             checkboxInput("logarithmic", "Show log of load and solar production"),
-                            checkboxInput("show_grid", "Show grid/gen flow")
+                            checkboxInput("show_grid", "Show grid/gen input/output")
                         )
               )
         ),
@@ -117,28 +117,6 @@ ui <- dashboardPage(
       ),
 
       tabItem(tabName = "graph",
-              # fluidRow(
-              #     box(plotOutput("DirectedGraphPlot"),
-              #           title = "Power flows",
-              #           width=12,
-              #           sidebar = boxSidebar(
-              #               id = "directed_graph_plot_sidebar",
-              #               width = 25,
-              #               sliderInput("directedGraphPlotRange",
-              #                        width="90%",
-              #                        label = "Time range (days ago)",
-              #                        min = -365, max = 0,
-              #                        value = c(-90, 0))
-              #           )
-              #
-              #         )
-              # ),
-              # fluidRow(
-              #     box(
-              #         visNetworkOutput("visNetworkPlot", height="800px"),
-              #         title = "Power flows",
-              #         width=12)
-              # )
       ),
 
       tabItem(tabName = "analysis",
@@ -271,6 +249,7 @@ server <- function(input, output, session) {
             duckdb::dbDisconnect(con_duck, shutdown=TRUE)
             display_hf <- hf %>%
                 mutate(timestamp = clock::date_set_zone(timestamp, zone = tz)) %>%
+                mutate(battery_w = -battery_w) %>%
                 mutate(log_load_w = log10(load_w),
                        log_solarinverter_w = log10(solarinverter_w)) %>%
                 pivot_longer(!timestamp,
@@ -290,7 +269,7 @@ server <- function(input, output, session) {
             if (!input$logarithmic) {
             display_hf <- display_hf %>%
                 filter(Parameter != "Log Load (logW)",
-                       Parameter != "Log Solar inverter (logW)")
+                       Parameter != "Log Solar inverter output (logW)")
             }
 
             if (!input$show_grid) {
@@ -303,7 +282,8 @@ server <- function(input, output, session) {
                 geom_point(aes(colour=Parameter)) +
                 geom_line() +
                 facet_grid(Parameter~., scales = "free_y",
-                           labeller = labeller(Parameter = label_wrap_gen(10))) +
+                           labeller = labeller(Parameter = label_wrap_gen(8))) +
+                theme_minimal() +
                 theme(legend.position = "none",
                       text = element_text(size = 15)) +
                 labs(x="Time")
@@ -324,6 +304,7 @@ server <- function(input, output, session) {
             duckdb::dbDisconnect(con_duck, shutdown=TRUE)
             display_gd <- gd %>%
                 mutate(ts_epoch = clock::date_set_zone(ts_epoch, zone = tz)) %>%
+                mutate(battery_w = -battery_w) %>%
                 mutate(log_load_w = log10(load_w),
                        log_load_wh_today = log10(load_wh_today)) %>%
                 pivot_longer(!ts_epoch,
@@ -343,7 +324,8 @@ server <- function(input, output, session) {
                 geom_point(aes(colour=Parameter)) +
                 geom_line() +
                 facet_grid(Parameter~., scales = "free_y",
-                           labeller = labeller(Parameter = label_wrap_gen(10))) +
+                           labeller = labeller(Parameter = label_wrap_gen(8))) +
+                theme_minimal() +
                 theme(legend.position = "none",
                       text = element_text(size = 15)) +
                 labs(x="10 minute epoch date/time")
@@ -401,29 +383,42 @@ server <- function(input, output, session) {
             gen_w <- gaugeData() %>%
                         pull(grid_w)
 
-            battery_label <- glue("Battery (SoC ", bat_soc, "%)")
+            battery_label <- glue("Battery ", bat_soc, "%")
 
-            nodes_tbl <- tibble::tribble(~id, ~label,
-                                         1, "Generator",
-                                         2, "Selectronic",
-                                         3, "Solar",
-                                         4, battery_label,
-                                         5, "Load") %>%
-                mutate(shape = "box",
-                       shadow = TRUE)
+            nodes_tbl <- tibble::tribble(~id, ~label, ~group, ~level,
+                                         1, "Generator",  "A", 2,
+                                         2, "Selectronic", "B", 1,
+                                         3, "Solar", "C", 2,
+                                         4, battery_label, "D", 2,
+                                         5, "Load", "E", 2,
+                                         ) %>%
+                mutate(shadow = TRUE)
 
             edges_tbl <- tibble::tribble(~from, ~to, ~width, ~label,
-                    1, 2, log10(gen_w), glue(round(gen_w), "W"),
-                    3, 2, log10(solar_w), glue(round(solar_w), "W"),
-                    2, 4, log10(battery_charge_rate_w), glue(round(battery_charge_rate_w), "W"),
-                    4, 2, log10(battery_discharge_rate_w), glue(round(battery_discharge_rate_w), "W"),
-                    2, 5, log10(load_w), glue(round(load_w), "W")) %>%
+                    1, 2, log(gen_w,4), glue(round(gen_w), "W"),
+                    3, 2, log(solar_w,4), glue(round(solar_w), "W"),
+                    2, 4, log(battery_charge_rate_w,4), glue(round(battery_charge_rate_w), "W"),
+                    4, 2, log(battery_discharge_rate_w,4), glue(round(battery_discharge_rate_w), "W"),
+                    2, 5, log(load_w,4), glue(round(load_w), "W")) %>%
                 mutate(arrows = "to",
+                       arrowStrikethrough = FALSE,
+                       widthConstraint = 20,
                        shadow = TRUE)
 
             visNetwork(nodes_tbl, edges_tbl) %>% #, width = "100%", height="800px")
             visInteraction(dragNodes = FALSE, dragView = FALSE, zoomView = FALSE) %>%
-            visLayout(randomSeed = 123)
+              visGroups(groupname = "A", shape = "icon",
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f5e7", size=35)) %>%
+              visGroups(groupname = "B", shape = "box") %>%
+              visGroups(groupname = "C", shape = "icon",
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f185", size=35)) %>%
+              visGroups(groupname = "D", shape = "icon",
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f5df", size=35)) %>%
+              visGroups(groupname = "E", shape = "icon",
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f015", size=35)) %>%
+            addFontAwesome(name = "font-awesome-visNetwork") %>%
+            visLayout(randomSeed = 123456, hierarchical = FALSE)
+
 })
 
         output$FullBatteryPlot <- renderPlot({
