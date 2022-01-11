@@ -56,7 +56,7 @@ ui <- dashboardPage(
       gaugeOutput("battery_discharge_gauge", height="auto", width="auto"),
             # A static valueBox
       customArea = tagList(
-          htmlOutput("LastUpdate")
+          # htmlOutput("LastUpdate")
       )
   ),
 
@@ -76,7 +76,7 @@ ui <- dashboardPage(
       tabItem(tabName = "overview",
         fluidRow(
           box(plotOutput("ShortTermPlot"),
-              title = "Recent data",
+              title = htmlOutput("LastUpdate"),
               width=12,
               sidebar = boxSidebar(
                             id = "short_term_box_sidebar",
@@ -108,11 +108,11 @@ ui <- dashboardPage(
                                                   "Show log of load and daily total load")
                                     )
             ),
+
           box(
               visNetworkOutput("visNetworkPlot"),
               title = "Power flows",
               width=3)
-
         )
       ),
 
@@ -230,9 +230,9 @@ server <- function(input, output, session) {
 
         output$LastUpdate <- renderUI({
             invalidateLater(1000, session)
-            h6(glue("Data refreshed ",
+            glue("Recent data -  refreshed approximately ",
                  as.numeric(difftime(clock::date_now(zone=tz),last_update,units="secs")),
-                 " seconds ago."), align="center")
+                 " seconds ago.")
         })
 
         output$ShortTermPlot <- renderPlot({
@@ -332,41 +332,6 @@ server <- function(input, output, session) {
 
         })
 
-#         output$DirectedGraphPlot <- renderPlot({
-#
-#                 bat_soc <- gaugeData() %>%
-#                             pull(battery_soc)
-#                 load_w <- gaugeData() %>%
-#                             pull(load_w)
-#                 solar_w <- gaugeData() %>%
-#                             pull(solarinverter_w)
-#                 battery_charge_rate_w <- gaugeData() %>%
-#                             pull(battery_charge_rate_w)
-#                 battery_discharge_rate_w <- gaugeData() %>%
-#                             pull(battery_discharge_rate_w)
-#
-#                 battery_label <- glue("Battery (SoC ", bat_soc, "%)")
-#
-#                 graph_tbl <- tibble::tribble(~from, ~to, ~edge_weight, ~edge_label,
-#                         "Generator","Selectronic", 0, glue(0, "W"),
-#                         "Solar", "Selectronic", solar_w, glue(round(solar_w), "W"),
-#                         "Selectronic", battery_label, battery_charge_rate_w, glue(round(battery_charge_rate_w), "W"),
-#                         battery_label, "Selectronic", battery_discharge_rate_w, glue(round(battery_discharge_rate_w), "W"),
-#                         "Selectronic", "Load", load_w, glue(round(load_w), "W"))
-#
-#                 graph_tbl %>%
-#                     as_tbl_graph() %>%
-#                     ggraph(layout = 'stress') +
-#                   geom_edge_fan(aes(label = edge_label,
-#                                      start_cap = label_rect(node1.name),
-#                                      end_cap = label_rect(node2.name)),
-#                                 label_size = 6,
-#                                 strength = 2,
-#                                 angle_calc = 'along',
-#                                 label_dodge = unit(2.5, 'mm'),
-#                                  arrow = arrow(length = unit(4, 'mm'))) +
-#                   geom_node_text(aes(label = name), size=6)
-# })
 
         output$visNetworkPlot <- renderVisNetwork({
 
@@ -394,12 +359,12 @@ server <- function(input, output, session) {
                                          ) %>%
                 mutate(shadow = TRUE)
 
-            edges_tbl <- tibble::tribble(~from, ~to, ~width, ~label,
-                    1, 2, log(gen_w,4), glue(round(gen_w), "W"),
-                    3, 2, log(solar_w,4), glue(round(solar_w), "W"),
-                    2, 4, log(battery_charge_rate_w,4), glue(round(battery_charge_rate_w), "W"),
-                    4, 2, log(battery_discharge_rate_w,4), glue(round(battery_discharge_rate_w), "W"),
-                    2, 5, log(load_w,4), glue(round(load_w), "W")) %>%
+            edges_tbl <- tibble::tribble(~from, ~to, ~width, ~length, ~label,
+                    1, 2, log(gen_w,4), 150, glue(round(gen_w), "W"),
+                    3, 2, log(solar_w,4), 150, glue(round(solar_w), "W"),
+                    2, 4, log(battery_charge_rate_w,4), 150, glue(round(battery_charge_rate_w), "W"),
+                    4, 2, log(battery_discharge_rate_w,4), 150, glue(round(battery_discharge_rate_w), "W"),
+                    2, 5, log(load_w,4), 150, glue(round(load_w), "W")) %>%
                 mutate(arrows = "to",
                        arrowStrikethrough = FALSE,
                        widthConstraint = 20,
@@ -408,16 +373,16 @@ server <- function(input, output, session) {
             visNetwork(nodes_tbl, edges_tbl) %>% #, width = "100%", height="800px")
             visInteraction(dragNodes = FALSE, dragView = FALSE, zoomView = FALSE) %>%
               visGroups(groupname = "A", shape = "icon",
-                        icon = list(face = "'Font Awesome 5 Free'", code = "f5e7", size=35)) %>%
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f5e7", size=45)) %>%
               visGroups(groupname = "B", shape = "box") %>%
               visGroups(groupname = "C", shape = "icon",
-                        icon = list(face = "'Font Awesome 5 Free'", code = "f185", size=35)) %>%
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f185", size=45)) %>%
               visGroups(groupname = "D", shape = "icon",
-                        icon = list(face = "'Font Awesome 5 Free'", code = "f5df", size=35)) %>%
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f5df", size=45)) %>%
               visGroups(groupname = "E", shape = "icon",
-                        icon = list(face = "'Font Awesome 5 Free'", code = "f015", size=35)) %>%
+                        icon = list(face = "'Font Awesome 5 Free'", code = "f015", size=45)) %>%
             addFontAwesome(name = "font-awesome-visNetwork") %>%
-            visLayout(randomSeed = 123456, hierarchical = FALSE)
+            visLayout(randomSeed = 128, hierarchical = FALSE)
 
 })
 
@@ -440,13 +405,6 @@ server <- function(input, output, session) {
                 summarise(battery_full_time = min(timestamp)) %>%
                 mutate(battery_full_time_hours = get_hour(battery_full_time) +
                                                  get_minute(battery_full_time)/60)
-
-#                        pivot_longer(!timestamp,
-#                                names_to = "Parameter",
-#                                values_to = "Value") %>%
-#                mutate(Parameter = factor(Parameter,
-#                                             levels = hfdata_levels,
-#                                             labels = hfdata_labels)) %>%
 
             full_battery_hf %>%
                 ggplot(aes(x=datestamp, y=battery_full_time_hours)) +
