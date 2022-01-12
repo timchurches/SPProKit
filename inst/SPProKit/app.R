@@ -33,6 +33,15 @@ getdata_labels <- c("Load (W)", "Log Load (logW)","Battery charge/ discharge rat
 
 last_update <- clock::date_now(zone=tz)
 
+# utility functions
+w2kw <- function(watts) {
+    if (watts < 1000) {
+        glue(round(watts), "W")
+    } else {
+        glue(round(watts/1000, digits=1), "kW")
+    }
+}
+
 ui <- dashboardPage(
 
   dark = FALSE,
@@ -364,11 +373,11 @@ server <- function(input, output, session) {
                 mutate(shadow = TRUE)
 
             edges_tbl <- tibble::tribble(~from, ~to, ~width, ~length, ~label,
-                    1, 2, log(gen_w,4), 150, glue(round(gen_w), "W"),
-                    3, 2, log(solar_w,4), 150, glue(round(solar_w), "W"),
-                    2, 4, log(battery_charge_rate_w,4), 150, glue(round(battery_charge_rate_w), "W"),
-                    4, 2, log(battery_discharge_rate_w,4), 150, glue(round(battery_discharge_rate_w), "W"),
-                    2, 5, log(load_w,4), 150, glue(round(load_w), "W")) %>%
+                    1, 2, log(gen_w,4), 150, w2kw(gen_w),
+                    3, 2, log(solar_w,4), 150, w2kw(solar_w),
+                    2, 4, log(battery_charge_rate_w,4), 150, w2kw(battery_charge_rate_w),
+                    4, 2, log(battery_discharge_rate_w,4), 150, w2kw(battery_discharge_rate_w),
+                    2, 5, log(load_w,4), 150, w2kw(load_w)) %>%
                 mutate(arrows = "to",
                        arrowStrikethrough = FALSE,
                        widthConstraint = 20,
