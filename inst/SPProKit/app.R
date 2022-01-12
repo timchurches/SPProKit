@@ -35,10 +35,15 @@ last_update <- clock::date_now(zone=tz)
 
 ui <- dashboardPage(
 
-  header = dashboardHeader(title="SPProKit"),
+  dark = FALSE,
+
+  header = dashboardHeader(title=tags$img(src='SPPro21_icon_small.png',
+                                          style =
+                                "display: block; margin-left: auto; margin-right: auto;padding-top:10px;")),
 
   sidebar = dashboardSidebar(
     fixed = TRUE,
+    skin = "light",
     sidebarMenu(
       menuItem("Overview", tabName = "overview", icon = icon("dashboard", lib="glyphicon")),
       menuItem("Historical", tabName = "historical", icon = icon("chart-line")),
@@ -61,7 +66,9 @@ ui <- dashboardPage(
 
   controlbar = dashboardControlbar(
             title = "Skin selector and stop button",
-            skinSelector(),
+            collapsed = TRUE,
+            pinned = TRUE,
+            div(class = "p-3", skinSelector()),
             actionBttn("stop_button",
                        label="Stop app",
                        color="warning",
